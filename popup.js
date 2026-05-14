@@ -75,7 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function checkApiStatus() {
   try {
     const settings = await chrome.storage.local.get(['apiEndpoint']);
-    const endpoint = settings.apiEndpoint || 'http://localhost:8642/v1';
+    const endpoint = settings.apiEndpoint || 'http://84.247.148.26:8642/v1';
     
     const response = await fetch(endpoint.replace('/v1', '') + '/health');
     const data = await response.json();

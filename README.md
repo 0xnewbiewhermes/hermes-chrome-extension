@@ -54,7 +54,7 @@ Personal AI browsing assistant powered by Hermes Agent.
 
    - Click the extension icon in toolbar
    - Click ⚙️ Settings
-   - Set API endpoint (default: `http://localhost:8642/v1`)
+   - Set API endpoint (default: `http://84.247.148.26:8642/v1`)
 
 4. **Start Using**
 

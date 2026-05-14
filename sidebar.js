@@ -1,7 +1,7 @@
 // Hermes Chrome Extension - Sidebar Logic
 // Connects to local Hermes API server
 
-const DEFAULT_API = 'http://localhost:8642/v1';
+const DEFAULT_API = 'http://84.247.148.26:8642/v1';
 
 class HermesChat {
   constructor() {
