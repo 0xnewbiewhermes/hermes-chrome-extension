@@ -2,11 +2,12 @@
 // Connects to local Hermes API server
 
 const DEFAULT_API = 'http://84.247.148.26:8642/v1';
+const DEFAULT_API_KEY = '0A_4Apb9aTpzophh0Gx2DstIwXIGMeF3U945KOmRJrM';
 
 class HermesChat {
   constructor() {
     this.apiEndpoint = DEFAULT_API;
-    this.apiKey = '';
+    this.apiKey = DEFAULT_API_KEY; // Use default API key
     this.messages = [];
     this.maxHistory = 20;
     this.includeContext = true;
@@ -29,18 +30,37 @@ class HermesChat {
   }
 
   async loadSettings() {
-    const settings = await chrome.storage.local.get([
-      'apiEndpoint', 'apiKey', 'autoSummarize', 'includeContext', 'maxHistory', 'chatHistory'
-    ]);
-    
-    this.apiEndpoint = settings.apiEndpoint || DEFAULT_API;
-    this.apiKey = settings.apiKey || '';
-    this.autoSummarize = settings.autoSummarize === true;
-    this.includeContext = settings.includeContext !== false;
-    this.maxHistory = settings.maxHistory || 20;
-    
-    if (settings.chatHistory) {
-      this.messages = settings.chatHistory;
+    try {
+      const settings = await chrome.storage.local.get([
+        'apiEndpoint', 'apiKey', 'autoSummarize', 'includeContext', 'maxHistory', 'chatHistory'
+      ]);
+      
+      // Use saved values or defaults
+      this.apiEndpoint = settings.apiEndpoint || DEFAULT_API;
+      this.apiKey = settings.apiKey || DEFAULT_API_KEY;
+      this.autoSummarize = settings.autoSummarize === true;
+      this.includeContext = settings.includeContext !== false;
+      this.maxHistory = settings.maxHistory || 20;
+      
+      if (settings.chatHistory) {
+        this.messages = settings.chatHistory;
+      }
+      
+      // Save the API key if it wasn't saved before
+      if (!settings.apiKey) {
+        await chrome.storage.local.set({ apiKey: DEFAULT_API_KEY });
+      }
+      
+      console.log('Settings loaded:', { 
+        endpoint: this.apiEndpoint, 
+        hasApiKey: !!this.apiKey,
+        autoSummarize: this.autoSummarize 
+      });
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      // Use defaults on error
+      this.apiEndpoint = DEFAULT_API;
+      this.apiKey = DEFAULT_API_KEY;
     }
   }
 
@@ -188,7 +208,6 @@ class HermesChat {
     const url = this.currentPageInfo?.url || 'unknown page';
     const title = this.currentPageInfo?.title || '';
     
-    // Build a comprehensive prompt with page context
     let prompt = `Please summarize the page I'm currently viewing.`;
     if (title) prompt += `\n\nPage Title: ${title}`;
     if (url) prompt += `\nURL: ${url}`;
@@ -211,7 +230,6 @@ class HermesChat {
     try {
       this.addSystemMessage('📸 Capturing screenshot...');
       
-      // Tell background script to take screenshot
       chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
         if (chrome.runtime.lastError) {
           this.addSystemMessage('❌ Error: ' + chrome.runtime.lastError.message);
@@ -233,16 +251,12 @@ class HermesChat {
 
   handleScreenshotResult(data) {
     if (data && data.screenshot) {
-      // Show screenshot in UI
       this.addScreenshotToUI(data.screenshot);
-      
-      // Send to API for analysis
       this.sendVisionMessage(data.screenshot);
     }
   }
 
   addScreenshotToUI(screenshotUrl) {
-    // Remove welcome message if exists
     const welcome = this.chatContainer.querySelector('.welcome-message');
     if (welcome) welcome.remove();
 
@@ -284,14 +298,10 @@ class HermesChat {
         headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
       
-      // Build messages with image
       const systemContent = `You are Hermes, a personal AI browsing assistant. The user has captured a screenshot of their browser. Analyze the screenshot and describe what you see on the page. Be helpful and concise. Reply in the same language the user uses.`;
       
       const messages = [
-        {
-          role: 'system',
-          content: systemContent
-        },
+        { role: 'system', content: systemContent },
         {
           role: 'user',
           content: [
@@ -337,15 +347,27 @@ class HermesChat {
 
   async checkApiStatus() {
     try {
-      const response = await fetch(`${this.apiEndpoint.replace('/v1', '')}/health`);
+      const healthUrl = `${this.apiEndpoint.replace('/v1', '')}/health`;
+      console.log('Checking API status at:', healthUrl);
+      
+      const response = await fetch(healthUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
       const data = await response.json();
+      console.log('Health check response:', data);
+      
       if (data.status === 'ok') {
         this.statusEl.textContent = 'Connected';
         this.statusEl.classList.add('connected');
       } else {
-        throw new Error('Not ok');
+        throw new Error('Status not ok');
       }
     } catch (error) {
+      console.error('Health check failed:', error);
       this.statusEl.textContent = 'Disconnected';
       this.statusEl.classList.remove('connected');
       this.addSystemMessage('⚠️ Cannot connect to Hermes API. Make sure the gateway is running.');
@@ -358,7 +380,6 @@ class HermesChat {
       content: `You are Hermes, a personal AI browsing assistant. You help the user with anything they need while browsing - research, analysis, summarization, explanations, and more. Be helpful, concise, and direct. Reply in the same language the user uses (Indonesian or English).`
     };
 
-    // Add page context if available and enabled
     if (this.includeContext && this.currentPageInfo) {
       let contextNote = `\n\n=== CURRENT PAGE CONTEXT ===`;
       contextNote += `\n- URL: ${this.currentPageInfo.url}`;
@@ -384,7 +405,6 @@ class HermesChat {
       systemMessage.content += contextNote;
     }
 
-    // Get recent messages within limit
     const recentMessages = this.messages.slice(-this.maxHistory * 2);
     
     return [systemMessage, ...recentMessages];
@@ -394,17 +414,14 @@ class HermesChat {
     const content = this.messageInput.value.trim();
     if (!content || this.isLoading) return;
 
-    // Add user message
     this.messages.push({ role: 'user', content });
     this.addMessageToUI('user', content);
     
-    // Clear input
     this.messageInput.value = '';
     this.autoResize();
     this.charCount.textContent = '0';
     this.sendBtn.disabled = true;
     
-    // Show loading
     this.isLoading = true;
     this.showTypingIndicator();
 
@@ -419,6 +436,9 @@ class HermesChat {
         headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
       
+      console.log('Sending message to:', `${this.apiEndpoint}/chat/completions`);
+      console.log('API Key present:', !!this.apiKey);
+      
       const response = await fetch(`${this.apiEndpoint}/chat/completions`, {
         method: 'POST',
         headers: headers,
@@ -430,7 +450,9 @@ class HermesChat {
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error('API error response:', errorText);
+        throw new Error(`API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -444,7 +466,7 @@ class HermesChat {
         throw new Error('No response content');
       }
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Send message error:', error);
       this.addSystemMessage(`❌ Error: ${error.message}`);
     } finally {
       this.isLoading = false;
@@ -453,7 +475,6 @@ class HermesChat {
   }
 
   addMessageToUI(role, content) {
-    // Remove welcome message if exists
     const welcome = this.chatContainer.querySelector('.welcome-message');
     if (welcome) {
       welcome.remove();
@@ -469,7 +490,6 @@ class HermesChat {
     const messageContent = document.createElement('div');
     messageContent.className = 'message-content';
     
-    // Handle array content (for vision messages)
     if (Array.isArray(content)) {
       const textPart = content.find(c => c.type === 'text');
       messageContent.innerHTML = this.renderMarkdown(textPart?.text || '');
@@ -534,39 +554,29 @@ class HermesChat {
   renderMarkdown(text) {
     if (!text) return '';
     
-    // Basic markdown rendering
     let html = text
-      // Code blocks
       .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
-      // Inline code
       .replace(/`([^`]+)`/g, '<code>$1</code>')
-      // Bold
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      // Italic
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      // Links
       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-      // Line breaks
       .replace(/\n/g, '<br>');
     
     return html;
   }
 
   async saveChatHistory() {
-    // Keep only last N messages
     const historyToSave = this.messages.slice(-this.maxHistory * 2);
     await chrome.storage.local.set({ chatHistory: historyToSave });
   }
 
   loadChatHistory() {
     if (this.messages.length > 0) {
-      // Remove welcome message
       const welcome = this.chatContainer.querySelector('.welcome-message');
       if (welcome) {
         welcome.remove();
       }
       
-      // Render existing messages
       this.messages.forEach(msg => {
         this.addMessageToUI(msg.role, msg.content);
       });
@@ -591,7 +601,6 @@ class HermesChat {
       </div>
     `;
     
-    // Re-bind quick actions
     document.querySelectorAll('.quick-btn').forEach(btn => {
       if (btn.id === 'screenshotBtn') {
         btn.addEventListener('click', () => this.captureScreenshot());
