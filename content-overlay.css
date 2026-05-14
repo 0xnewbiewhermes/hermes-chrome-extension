@@ -1,0 +1,74 @@
+/* Hermes Content Overlay Styles */
+
+#hermes-float-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
+  z-index: 999999;
+  transition: all 0.3s ease;
+  user-select: none;
+  border: none;
+  padding: 0;
+  line-height: 1;
+}
+
+#hermes-float-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.5);
+}
+
+#hermes-float-btn:active {
+  transform: scale(0.95);
+}
+
+/* Hermes Selection Popup */
+#hermes-selection-popup {
+  position: absolute;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 999998;
+  display: flex;
+  gap: 4px;
+  animation: hermes-fade-in 0.2s ease;
+}
+
+@keyframes hermes-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#hermes-selection-popup button {
+  background: #222;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+#hermes-selection-popup button:hover {
+  background: #7c3aed;
+  border-color: #8b5cf6;
+}

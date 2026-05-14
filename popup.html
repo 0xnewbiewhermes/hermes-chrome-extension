@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes Assistant</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 320px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      padding: 16px;
+    }
+
+    .popup-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .popup-logo {
+      font-size: 24px;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+      border-radius: 12px;
+    }
+
+    .popup-info h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .popup-info p {
+      font-size: 12px;
+      color: #888;
+    }
+
+    .popup-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      color: #e0e0e0;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .action-btn:hover {
+      background: #222;
+      border-color: #7c3aed;
+      transform: translateX(4px);
+    }
+
+    .action-icon {
+      font-size: 18px;
+      width: 24px;
+      text-align: center;
+    }
+
+    .action-text {
+      flex: 1;
+    }
+
+    .action-text span {
+      display: block;
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
+
+    .shortcut {
+      font-size: 10px;
+      color: #555;
+      background: #222;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .footer {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #2a2a2a;
+      text-align: center;
+    }
+
+    .footer a {
+      color: #8b5cf6;
+      text-decoration: none;
+      font-size: 12px;
+    }
+
+    .footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-header">
+    <div class="popup-logo">⚡</div>
+    <div class="popup-info">
+      <h1>Hermes Assistant</h1>
+      <p>Personal AI browsing assistant</p>
+    </div>
+  </div>
+
+  <div class="popup-actions">
+    <button class="action-btn" id="openSidebar">
+      <span class="action-icon">💬</span>
+      <div class="action-text">
+        Open Chat
+        <span>Start conversation with Hermes</span>
+      </div>
+      <span class="shortcut">⌘⇧H</span>
+    </button>
+
+    <button class="action-btn" id="summarizePage">
+      <span class="action-icon">📝</span>
+      <div class="action-text">
+        Summarize Page
+        <span>Get quick summary of current page</span>
+      </div>
+    </button>
+
+    <button class="action-btn" id="explainSelection">
+      <span class="action-icon">💡</span>
+      <div class="action-text">
+        Explain Selection
+        <span>Select text first, then click</span>
+      </div>
+    </button>
+
+    <button class="action-btn" id="findRelated">
+      <span class="action-icon">🔍</span>
+      <div class="action-text">
+        Find Related
+        <span>Discover similar content</span>
+      </div>
+    </button>
+  </div>
+
+  <div class="footer">
+    <a href="https://hermes-agent.nousresearch.com/docs" target="_blank">Hermes Agent Docs</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
