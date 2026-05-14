@@ -53,9 +53,10 @@
 
   function sendPageContext() {
     const context = getPageContext();
-    // Only send if URL changed or content might have changed
+    // Only send if URL changed
     if (context.url !== lastSentUrl) {
       lastSentUrl = context.url;
+      console.log('Content script: Sending page context for', context.url);
       chrome.runtime.sendMessage({ type: 'PAGE_CONTEXT_UPDATE', data: context }).catch(() => {});
     }
   }
@@ -85,12 +86,15 @@
   });
 
   // Send initial page context
+  function initContext() {
+    // Small delay to ensure page is fully loaded
+    setTimeout(sendPageContext, 100);
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      sendPageContext();
-    });
+    document.addEventListener('DOMContentLoaded', initContext);
   } else {
-    sendPageContext();
+    initContext();
   }
 
   // Send page context when URL changes (SPA navigation)
@@ -102,17 +106,28 @@
       sendPageContext();
     }
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  
+  // Start observing
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 
   // Listen for text selection
   document.addEventListener('mouseup', () => {
-    setTimeout(sendSelectedText, 100); // Small delay to ensure selection is complete
+    setTimeout(sendSelectedText, 100);
   });
 
   // Add floating button for quick access
   function addFloatingButton() {
     // Don't add if already exists
     if (document.getElementById('hermes-float-btn')) return;
+    
+    // Don't add on certain pages
+    if (window.location.protocol === 'chrome:' || 
+        window.location.protocol === 'chrome-extension:' ||
+        window.location.protocol === 'about:') {
+      return;
+    }
     
     const button = document.createElement('div');
     button.id = 'hermes-float-btn';

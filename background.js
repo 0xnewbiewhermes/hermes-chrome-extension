@@ -11,14 +11,15 @@ chrome.action.onClicked.addListener((tab) => {
 
 // Handle messages from content script and sidebar
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Background received message:', message.type, 'from:', sender.tab ? 'content' : 'extension');
+  console.log('Background: received message:', message.type);
   
   if (message.type === 'PAGE_CONTEXT_UPDATE') {
     // Content script is sending page context
     pageContextStore[message.data.url] = message.data;
-    // Forward to sidebar if it's listening
+    // Forward to sidebar
     chrome.runtime.sendMessage({ type: 'PAGE_CONTEXT', data: message.data }).catch(() => {});
     sendResponse({ success: true });
+    return true;
   }
   
   if (message.type === 'GET_PAGE_CONTEXT') {
@@ -38,23 +39,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             metaDescription: null
           });
         }
+      } else {
+        sendResponse(null);
       }
     });
     return true; // Keep message channel open for async response
   }
   
   if (message.type === 'TAKE_SCREENSHOT') {
-    // Capture screenshot of active tab
+    console.log('Background: Taking screenshot...');
+    
+    // First open the side panel if not already open
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      if (tabs[0]) {
-        chrome.tabs.captureVisibleTab(null, { format: 'png', quality: 90 }, (screenshotUrl) => {
-          if (chrome.runtime.lastError) {
-            sendResponse({ error: chrome.runtime.lastError.message });
-          } else {
-            sendResponse({ screenshot: screenshotUrl });
-          }
-        });
+      if (!tabs[0]) {
+        sendResponse({ error: 'No active tab found' });
+        return;
       }
+      
+      // Capture the visible tab
+      chrome.tabs.captureVisibleTab(
+        null, 
+        { format: 'png', quality: 90 },
+        (dataUrl) => {
+          if (chrome.runtime.lastError) {
+            console.error('Screenshot error:', chrome.runtime.lastError);
+            sendResponse({ error: chrome.runtime.lastError.message });
+          } else if (dataUrl) {
+            console.log('Background: Screenshot captured, sending to sidebar');
+            sendResponse({ screenshot: dataUrl });
+          } else {
+            sendResponse({ error: 'No screenshot data' });
+          }
+        }
+      );
     });
     return true; // Keep message channel open for async response
   }
@@ -63,6 +80,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (sender.tab) {
       chrome.sidePanel.open({ windowId: sender.tab.windowId });
     }
+    return true;
   }
   
   if (message.type === 'TEXT_SELECTED') {
@@ -74,6 +92,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Forward to sidebar
       chrome.runtime.sendMessage({ type: 'TEXT_SELECTED', data: message.data }).catch(() => {});
     }
+    return true;
   }
   
   return true;
@@ -119,7 +138,6 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'ask-hermes') {
     chrome.storage.local.set({
-      selectedText: info.selectionText,
       pendingPrompt: `Explain this: "${info.selectionText}"`,
       selectedUrl: tab.url,
       selectedTitle: tab.title
@@ -146,19 +164,18 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-// Listen for tab updates to refresh page context
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.active) {
-    // Page finished loading, content script will send context
-  }
-});
-
-// Listen for tab activation
+// Listen for tab activation to update context
 chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.tabs.get(activeInfo.tabId, (tab) => {
     if (tab && pageContextStore[tab.url]) {
-      // Send stored context to sidebar
       chrome.runtime.sendMessage({ type: 'PAGE_CONTEXT', data: pageContextStore[tab.url] }).catch(() => {});
     }
   });
+});
+
+// Listen for tab updates
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.active) {
+    // Content script will send context update
+  }
 });

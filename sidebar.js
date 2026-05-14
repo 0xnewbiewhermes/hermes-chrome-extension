@@ -23,7 +23,7 @@ class HermesChat {
     this.bindElements();
     this.bindEvents();
     this.loadChatHistory();
-    this.requestPageContext();
+    await this.requestPageContext();
     this.checkApiStatus();
     this.handlePendingPrompt();
   }
@@ -101,7 +101,6 @@ class HermesChat {
     // Quick actions
     document.querySelectorAll('.quick-btn').forEach(btn => {
       if (btn.id === 'screenshotBtn') {
-        // Screenshot button has special handler
         btn.addEventListener('click', () => this.captureScreenshot());
       } else if (btn.dataset.prompt) {
         btn.addEventListener('click', () => {
@@ -113,44 +112,37 @@ class HermesChat {
       }
     });
     
-    // Listen for page context from content script
+    // Listen for messages from background script
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'PAGE_CONTEXT') {
         this.currentPageInfo = message.data;
         this.updateContextDisplay();
-        // Auto-summarize if enabled and not already done
-        if (this.autoSummarize && !this.hasAutoSummarized && this.currentPageInfo) {
-          this.hasAutoSummarized = true;
-          setTimeout(() => this.autoSummarizePage(), 500);
-        }
       }
-      if (message.type === 'SCREENSHOT_RESULT') {
-        this.handleScreenshotResult(message.data);
+      if (message.type === 'SCREENSHOT_DONE') {
+        if (message.data && message.data.screenshot) {
+          this.handleScreenshotResult(message.data);
+        } else if (message.data && message.data.error) {
+          this.addSystemMessage('❌ Screenshot error: ' + message.data.error);
+        }
       }
     });
   }
 
-  autoResize() {
-    this.messageInput.style.height = 'auto';
-    this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 150) + 'px';
-  }
-
   async requestPageContext() {
-    try {
-      // Request page context from background script
+    return new Promise((resolve) => {
       chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' }, (response) => {
         if (chrome.runtime.lastError) {
           console.log('Could not get page context:', chrome.runtime.lastError);
+          resolve();
           return;
         }
         if (response) {
           this.currentPageInfo = response;
           this.updateContextDisplay();
         }
+        resolve();
       });
-    } catch (error) {
-      console.log('Could not get page context:', error);
-    }
+    });
   }
 
   updateContextDisplay() {
@@ -178,41 +170,60 @@ class HermesChat {
       chrome.storage.local.remove('pendingPrompt');
       
       if (data.pendingPrompt === 'screenshot') {
-        this.captureScreenshot();
+        setTimeout(() => this.captureScreenshot(), 500);
       } else {
         this.messageInput.value = data.pendingPrompt;
         this.autoResize();
-        this.sendMessage();
+        setTimeout(() => this.sendMessage(), 500);
       }
+    } else if (this.autoSummarize && !this.hasAutoSummarized && this.currentPageInfo) {
+      this.hasAutoSummarized = true;
+      setTimeout(() => this.autoSummarizePage(), 1000);
     }
   }
 
   autoSummarizePage() {
-    if (!this.currentPageInfo || this.messages.length > 0) return;
+    if (this.messages.length > 0) return;
     
-    const url = this.currentPageInfo.url;
-    const title = this.currentPageInfo.title;
+    const url = this.currentPageInfo?.url || 'unknown page';
+    const title = this.currentPageInfo?.title || '';
     
-    this.messageInput.value = `Summarize this page: ${title} (${url})`;
+    // Build a comprehensive prompt with page context
+    let prompt = `Please summarize the page I'm currently viewing.`;
+    if (title) prompt += `\n\nPage Title: ${title}`;
+    if (url) prompt += `\nURL: ${url}`;
+    if (this.currentPageInfo?.metaDescription) {
+      prompt += `\nDescription: ${this.currentPageInfo.metaDescription}`;
+    }
+    if (this.currentPageInfo?.headings && this.currentPageInfo.headings.length > 0) {
+      prompt += `\n\nMain headings on the page:`;
+      this.currentPageInfo.headings.slice(0, 5).forEach(h => {
+        prompt += `\n- ${h.text}`;
+      });
+    }
+    
+    this.messageInput.value = prompt;
     this.autoResize();
     this.sendMessage();
   }
 
   async captureScreenshot() {
     try {
-      this.addSystemMessage('📸 Taking screenshot...');
+      this.addSystemMessage('📸 Capturing screenshot...');
       
-      // Request screenshot from background script
+      // Tell background script to take screenshot
       chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
         if (chrome.runtime.lastError) {
-          this.addSystemMessage('❌ Screenshot failed: ' + chrome.runtime.lastError.message);
+          this.addSystemMessage('❌ Error: ' + chrome.runtime.lastError.message);
           return;
         }
         
         if (response && response.screenshot) {
           this.handleScreenshotResult(response);
+        } else if (response && response.error) {
+          this.addSystemMessage('❌ ' + response.error);
         } else {
-          this.addSystemMessage('❌ Screenshot failed: No data received');
+          this.addSystemMessage('❌ Screenshot failed - no response');
         }
       });
     } catch (error) {
@@ -222,20 +233,10 @@ class HermesChat {
 
   handleScreenshotResult(data) {
     if (data && data.screenshot) {
-      // Add screenshot to chat as user message with image
-      const message = {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Analyze this screenshot and describe what you see:' },
-          { type: 'image_url', image_url: { url: data.screenshot } }
-        ]
-      };
-      
-      this.messages.push(message);
+      // Show screenshot in UI
       this.addScreenshotToUI(data.screenshot);
-      this.saveChatHistory();
       
-      // Send to API with vision capability
+      // Send to API for analysis
       this.sendVisionMessage(data.screenshot);
     }
   }
@@ -257,6 +258,7 @@ class HermesChat {
     messageContent.innerHTML = `
       <div class="screenshot-label">📸 Screenshot captured</div>
       <img src="${screenshotUrl}" class="screenshot-preview" alt="Page screenshot">
+      <div class="screenshot-prompt">Analyze this screenshot</div>
     `;
     
     messageDiv.appendChild(avatar);
@@ -283,15 +285,17 @@ class HermesChat {
       }
       
       // Build messages with image
+      const systemContent = `You are Hermes, a personal AI browsing assistant. The user has captured a screenshot of their browser. Analyze the screenshot and describe what you see on the page. Be helpful and concise. Reply in the same language the user uses.`;
+      
       const messages = [
         {
           role: 'system',
-          content: 'You are Hermes, a personal AI browsing assistant. Analyze the screenshot and describe what you see on the page. Be helpful and concise.'
+          content: systemContent
         },
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Analyze this screenshot and describe what you see:' },
+            { type: 'text', text: 'Please analyze this screenshot and describe what you see on the page:' },
             { type: 'image_url', image_url: { url: screenshotUrl } }
           ]
         }
@@ -303,12 +307,13 @@ class HermesChat {
         body: JSON.stringify({
           model: 'hermes-agent',
           messages: messages,
-          stream: false
+          max_tokens: 1000
         })
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`API error ${response.status}: ${errorText}`);
       }
 
       const data = await response.json();
@@ -319,10 +324,11 @@ class HermesChat {
         this.addMessageToUI('assistant', assistantMessage);
         this.saveChatHistory();
       } else {
-        throw new Error('No response content');
+        throw new Error('No response from API');
       }
     } catch (error) {
-      this.addSystemMessage('❌ Error: ' + error.message);
+      console.error('Vision API error:', error);
+      this.addSystemMessage('❌ Analysis error: ' + error.message);
     } finally {
       this.isLoading = false;
       this.hideTypingIndicator();
@@ -342,7 +348,7 @@ class HermesChat {
     } catch (error) {
       this.statusEl.textContent = 'Disconnected';
       this.statusEl.classList.remove('connected');
-      this.addSystemMessage('⚠️ Tidak bisa connect ke Hermes API. Pastikan Hermes gateway running di server.');
+      this.addSystemMessage('⚠️ Cannot connect to Hermes API. Make sure the gateway is running.');
     }
   }
 
@@ -354,15 +360,26 @@ class HermesChat {
 
     // Add page context if available and enabled
     if (this.includeContext && this.currentPageInfo) {
-      let contextNote = `\n\nCurrent page context:\n- URL: ${this.currentPageInfo.url}\n- Title: ${this.currentPageInfo.title}`;
+      let contextNote = `\n\n=== CURRENT PAGE CONTEXT ===`;
+      contextNote += `\n- URL: ${this.currentPageInfo.url}`;
+      contextNote += `\n- Title: ${this.currentPageInfo.title}`;
+      
+      if (this.currentPageInfo.metaDescription) {
+        contextNote += `\n- Description: ${this.currentPageInfo.metaDescription.substring(0, 500)}`;
+      }
+      
+      if (this.currentPageInfo.headings && this.currentPageInfo.headings.length > 0) {
+        contextNote += `\n- Main headings:`;
+        this.currentPageInfo.headings.slice(0, 5).forEach(h => {
+          contextNote += `\n  • ${h.text}`;
+        });
+      }
       
       if (this.currentPageInfo.selectedText) {
         contextNote += `\n- Selected text: "${this.currentPageInfo.selectedText.substring(0, 500)}"`;
       }
       
-      if (this.currentPageInfo.metaDescription) {
-        contextNote += `\n- Page description: ${this.currentPageInfo.metaDescription.substring(0, 300)}`;
-      }
+      contextNote += `\n=============================`;
       
       systemMessage.content += contextNote;
     }
@@ -398,7 +415,6 @@ class HermesChat {
         'Content-Type': 'application/json',
       };
       
-      // Add API key if configured
       if (this.apiKey) {
         headers['Authorization'] = `Bearer ${this.apiKey}`;
       }
@@ -453,8 +469,13 @@ class HermesChat {
     const messageContent = document.createElement('div');
     messageContent.className = 'message-content';
     
-    // Simple markdown rendering
-    messageContent.innerHTML = this.renderMarkdown(content);
+    // Handle array content (for vision messages)
+    if (Array.isArray(content)) {
+      const textPart = content.find(c => c.type === 'text');
+      messageContent.innerHTML = this.renderMarkdown(textPart?.text || '');
+    } else {
+      messageContent.innerHTML = this.renderMarkdown(content);
+    }
     
     const messageTime = document.createElement('div');
     messageTime.className = 'message-time';
@@ -511,6 +532,8 @@ class HermesChat {
   }
 
   renderMarkdown(text) {
+    if (!text) return '';
+    
     // Basic markdown rendering
     let html = text
       // Code blocks
@@ -552,16 +575,17 @@ class HermesChat {
 
   clearChat() {
     this.messages = [];
+    this.hasAutoSummarized = false;
     chrome.storage.local.remove('chatHistory');
     this.chatContainer.innerHTML = `
       <div class="welcome-message">
         <div class="welcome-icon">⚡</div>
         <h2>Hermes Assistant</h2>
-        <p>Asisten pribadi kamu di kala browsing. Tanya apa aja!</p>
+        <p>Your personal AI browsing assistant. Ask me anything!</p>
         <div class="quick-actions">
           <button class="quick-btn" data-prompt="Summarize this page">📝 Summarize</button>
           <button class="quick-btn" data-prompt="Explain this page in simple terms">💡 Explain</button>
-          <button class="quick-btn" data-prompt="What are the key points?">🔑 Key Points</button>
+          <button class="quick-btn" id="screenshotBtn">📸 Screenshot</button>
           <button class="quick-btn" data-prompt="Find related articles">🔍 Related</button>
         </div>
       </div>
@@ -569,12 +593,16 @@ class HermesChat {
     
     // Re-bind quick actions
     document.querySelectorAll('.quick-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const prompt = btn.dataset.prompt;
-        this.messageInput.value = prompt;
-        this.autoResize();
-        this.sendMessage();
-      });
+      if (btn.id === 'screenshotBtn') {
+        btn.addEventListener('click', () => this.captureScreenshot());
+      } else if (btn.dataset.prompt) {
+        btn.addEventListener('click', () => {
+          const prompt = btn.dataset.prompt;
+          this.messageInput.value = prompt;
+          this.autoResize();
+          this.sendMessage();
+        });
+      }
     });
   }
 

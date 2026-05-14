@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Hermes Assistant",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Your personal AI browsing assistant powered by Hermes Agent",
   "permissions": [
     "activeTab",
@@ -11,7 +11,8 @@
     "contextMenus"
   ],
   "host_permissions": [
-    "http://84.247.148.26:8642/*"
+    "http://84.247.148.26:8642/*",
+    "<all_urls>"
   ],
   "side_panel": {
     "default_path": "sidebar.html"
