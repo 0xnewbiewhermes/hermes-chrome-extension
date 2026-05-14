@@ -116,20 +116,17 @@ class HermesChat {
 
   async requestPageContext() {
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab) {
-        chrome.tabs.sendMessage(tab.id, { type: 'GET_CONTEXT' }, (response) => {
-          if (chrome.runtime.lastError) {
-            // Content script not loaded yet
-            this.pageContext.textContent = new URL(tab.url).hostname;
-            return;
-          }
-          if (response) {
-            this.currentPageInfo = response;
-            this.updateContextDisplay();
-          }
-        });
-      }
+      // Request page context from background script
+      chrome.runtime.sendMessage({ type: 'GET_PAGE_CONTEXT' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log('Could not get page context:', chrome.runtime.lastError);
+          return;
+        }
+        if (response) {
+          this.currentPageInfo = response;
+          this.updateContextDisplay();
+        }
+      });
     } catch (error) {
       console.log('Could not get page context:', error);
     }

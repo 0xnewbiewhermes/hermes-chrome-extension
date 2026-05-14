@@ -1,17 +1,11 @@
 // Hermes Chrome Extension - Content Script
-// Extracts page context and selected text
+// Extracts page context and sends to background script
 
 (function() {
   'use strict';
 
-  // Listen for messages from the sidebar
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.type === 'GET_CONTEXT') {
-      const context = getPageContext();
-      sendResponse(context);
-    }
-    return true;
-  });
+  let lastSentUrl = '';
+  let lastSelectedText = '';
 
   function getPageContext() {
     const context = {
@@ -20,10 +14,8 @@
       selectedText: getSelectedText(),
       metaDescription: getMetaDescription(),
       headings: getHeadings(),
-      links: getImportantLinks(),
       timestamp: new Date().toISOString()
     };
-    
     return context;
   }
 
@@ -37,15 +29,10 @@
 
   function getMetaDescription() {
     const metaDesc = document.querySelector('meta[name="description"]');
-    if (metaDesc) {
-      return metaDesc.getAttribute('content');
-    }
+    if (metaDesc) return metaDesc.getAttribute('content');
     
-    // Try og:description
     const ogDesc = document.querySelector('meta[property="og:description"]');
-    if (ogDesc) {
-      return ogDesc.getAttribute('content');
-    }
+    if (ogDesc) return ogDesc.getAttribute('content');
     
     return null;
   }
@@ -53,7 +40,6 @@
   function getHeadings() {
     const headings = [];
     const headingElements = document.querySelectorAll('h1, h2, h3');
-    
     headingElements.forEach((heading, index) => {
       if (index < 10) {
         headings.push({
@@ -62,33 +48,22 @@
         });
       }
     });
-    
     return headings;
   }
 
-  function getImportantLinks() {
-    const links = [];
-    const linkElements = document.querySelectorAll('a[href]');
-    
-    linkElements.forEach((link, index) => {
-      if (index < 20 && link.href && !link.href.startsWith('javascript:')) {
-        const text = link.textContent.trim();
-        if (text && text.length > 2 && text.length < 100) {
-          links.push({
-            text: text,
-            href: link.href
-          });
-        }
-      }
-    });
-    
-    return links;
+  function sendPageContext() {
+    const context = getPageContext();
+    // Only send if URL changed or content might have changed
+    if (context.url !== lastSentUrl) {
+      lastSentUrl = context.url;
+      chrome.runtime.sendMessage({ type: 'PAGE_CONTEXT_UPDATE', data: context }).catch(() => {});
+    }
   }
 
-  // Notify sidebar when text is selected
-  document.addEventListener('mouseup', () => {
+  function sendSelectedText() {
     const selectedText = getSelectedText();
-    if (selectedText) {
+    if (selectedText && selectedText !== lastSelectedText) {
+      lastSelectedText = selectedText;
       chrome.runtime.sendMessage({
         type: 'TEXT_SELECTED',
         data: {
@@ -96,12 +71,49 @@
           url: window.location.href,
           title: document.title
         }
-      });
+      }).catch(() => {});
     }
+  }
+
+  // Listen for messages from background/sidebar
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'GET_CONTEXT') {
+      const context = getPageContext();
+      sendResponse(context);
+    }
+    return true;
+  });
+
+  // Send initial page context
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      sendPageContext();
+    });
+  } else {
+    sendPageContext();
+  }
+
+  // Send page context when URL changes (SPA navigation)
+  let currentUrl = window.location.href;
+  const observer = new MutationObserver(() => {
+    if (window.location.href !== currentUrl) {
+      currentUrl = window.location.href;
+      lastSentUrl = ''; // Reset to force re-send
+      sendPageContext();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Listen for text selection
+  document.addEventListener('mouseup', () => {
+    setTimeout(sendSelectedText, 100); // Small delay to ensure selection is complete
   });
 
   // Add floating button for quick access
   function addFloatingButton() {
+    // Don't add if already exists
+    if (document.getElementById('hermes-float-btn')) return;
+    
     const button = document.createElement('div');
     button.id = 'hermes-float-btn';
     button.innerHTML = '⚡';
@@ -136,7 +148,6 @@
     });
     
     button.addEventListener('click', () => {
-      // Open sidebar
       chrome.runtime.sendMessage({ type: 'OPEN_SIDEBAR' });
     });
     
