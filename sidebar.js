@@ -6,6 +6,7 @@ const DEFAULT_API = 'http://84.247.148.26:8642/v1';
 class HermesChat {
   constructor() {
     this.apiEndpoint = DEFAULT_API;
+    this.apiKey = '';
     this.messages = [];
     this.maxHistory = 20;
     this.includeContext = true;
@@ -26,10 +27,11 @@ class HermesChat {
 
   async loadSettings() {
     const settings = await chrome.storage.local.get([
-      'apiEndpoint', 'includeContext', 'maxHistory', 'chatHistory'
+      'apiEndpoint', 'apiKey', 'includeContext', 'maxHistory', 'chatHistory'
     ]);
     
     this.apiEndpoint = settings.apiEndpoint || DEFAULT_API;
+    this.apiKey = settings.apiKey || '';
     this.includeContext = settings.includeContext !== false;
     this.maxHistory = settings.maxHistory || 20;
     
@@ -55,6 +57,7 @@ class HermesChat {
     
     // Settings inputs
     this.apiEndpointInput = document.getElementById('apiEndpoint');
+    this.apiKeyInput = document.getElementById('apiKey');
     this.includeContextInput = document.getElementById('includeContext');
     this.maxHistoryInput = document.getElementById('maxHistory');
   }
@@ -216,11 +219,18 @@ class HermesChat {
     try {
       const messages = this.buildMessages();
       
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      
+      // Add API key if configured
+      if (this.apiKey) {
+        headers['Authorization'] = `Bearer ${this.apiKey}`;
+      }
+      
       const response = await fetch(`${this.apiEndpoint}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: headers,
         body: JSON.stringify({
           model: 'hermes-agent',
           messages: messages,
@@ -395,6 +405,7 @@ class HermesChat {
 
   openSettings() {
     this.apiEndpointInput.value = this.apiEndpoint;
+    this.apiKeyInput.value = this.apiKey;
     this.includeContextInput.checked = this.includeContext;
     this.maxHistoryInput.value = this.maxHistory;
     this.settingsModal.classList.add('active');
@@ -406,11 +417,13 @@ class HermesChat {
 
   async saveSettingsAction() {
     this.apiEndpoint = this.apiEndpointInput.value;
+    this.apiKey = this.apiKeyInput.value;
     this.includeContext = this.includeContextInput.checked;
     this.maxHistory = parseInt(this.maxHistoryInput.value);
     
     await chrome.storage.local.set({
       apiEndpoint: this.apiEndpoint,
+      apiKey: this.apiKey,
       includeContext: this.includeContext,
       maxHistory: this.maxHistory
     });
