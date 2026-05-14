@@ -41,7 +41,7 @@
         <div class="quick-actions">
           <button class="quick-btn" data-prompt="Summarize this page">📝 Summarize</button>
           <button class="quick-btn" data-prompt="Explain this page in simple terms">💡 Explain</button>
-          <button class="quick-btn" data-prompt="What are the key points?">🔑 Key Points</button>
+          <button class="quick-btn" id="screenshotBtn">📸 Screenshot</button>
           <button class="quick-btn" data-prompt="Find related articles">🔍 Related</button>
         </div>
       </div>
@@ -82,6 +82,13 @@
         <div class="setting-group">
           <label>API Key</label>
           <input type="password" id="apiKey" placeholder="Enter API key (optional)">
+        </div>
+        <div class="setting-group">
+          <label>Auto-Summarize</label>
+          <div class="toggle-wrapper">
+            <input type="checkbox" id="autoSummarize">
+            <span class="toggle-label">Auto-summarize page when sidebar opens</span>
+          </div>
         </div>
         <div class="setting-group">
           <label>Include Page Context</label>

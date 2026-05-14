@@ -10,8 +10,10 @@ class HermesChat {
     this.messages = [];
     this.maxHistory = 20;
     this.includeContext = true;
+    this.autoSummarize = false;
     this.currentPageInfo = null;
     this.isLoading = false;
+    this.hasAutoSummarized = false;
     
     this.init();
   }
@@ -23,15 +25,17 @@ class HermesChat {
     this.loadChatHistory();
     this.requestPageContext();
     this.checkApiStatus();
+    this.handlePendingPrompt();
   }
 
   async loadSettings() {
     const settings = await chrome.storage.local.get([
-      'apiEndpoint', 'apiKey', 'includeContext', 'maxHistory', 'chatHistory'
+      'apiEndpoint', 'apiKey', 'autoSummarize', 'includeContext', 'maxHistory', 'chatHistory'
     ]);
     
     this.apiEndpoint = settings.apiEndpoint || DEFAULT_API;
     this.apiKey = settings.apiKey || '';
+    this.autoSummarize = settings.autoSummarize === true;
     this.includeContext = settings.includeContext !== false;
     this.maxHistory = settings.maxHistory || 20;
     
@@ -58,8 +62,12 @@ class HermesChat {
     // Settings inputs
     this.apiEndpointInput = document.getElementById('apiEndpoint');
     this.apiKeyInput = document.getElementById('apiKey');
+    this.autoSummarizeInput = document.getElementById('autoSummarize');
     this.includeContextInput = document.getElementById('includeContext');
     this.maxHistoryInput = document.getElementById('maxHistory');
+    
+    // Screenshot button
+    this.screenshotBtn = document.getElementById('screenshotBtn');
   }
 
   bindEvents() {
@@ -92,12 +100,17 @@ class HermesChat {
     
     // Quick actions
     document.querySelectorAll('.quick-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const prompt = btn.dataset.prompt;
-        this.messageInput.value = prompt;
-        this.autoResize();
-        this.sendMessage();
-      });
+      if (btn.id === 'screenshotBtn') {
+        // Screenshot button has special handler
+        btn.addEventListener('click', () => this.captureScreenshot());
+      } else if (btn.dataset.prompt) {
+        btn.addEventListener('click', () => {
+          const prompt = btn.dataset.prompt;
+          this.messageInput.value = prompt;
+          this.autoResize();
+          this.sendMessage();
+        });
+      }
     });
     
     // Listen for page context from content script
@@ -105,6 +118,14 @@ class HermesChat {
       if (message.type === 'PAGE_CONTEXT') {
         this.currentPageInfo = message.data;
         this.updateContextDisplay();
+        // Auto-summarize if enabled and not already done
+        if (this.autoSummarize && !this.hasAutoSummarized && this.currentPageInfo) {
+          this.hasAutoSummarized = true;
+          setTimeout(() => this.autoSummarizePage(), 500);
+        }
+      }
+      if (message.type === 'SCREENSHOT_RESULT') {
+        this.handleScreenshotResult(message.data);
       }
     });
   }
@@ -149,6 +170,163 @@ class HermesChat {
     this.includeContext = !this.includeContext;
     this.contextBar.classList.toggle('disabled', !this.includeContext);
     chrome.storage.local.set({ includeContext: this.includeContext });
+  }
+
+  async handlePendingPrompt() {
+    const data = await chrome.storage.local.get(['pendingPrompt']);
+    if (data.pendingPrompt) {
+      chrome.storage.local.remove('pendingPrompt');
+      
+      if (data.pendingPrompt === 'screenshot') {
+        this.captureScreenshot();
+      } else {
+        this.messageInput.value = data.pendingPrompt;
+        this.autoResize();
+        this.sendMessage();
+      }
+    }
+  }
+
+  autoSummarizePage() {
+    if (!this.currentPageInfo || this.messages.length > 0) return;
+    
+    const url = this.currentPageInfo.url;
+    const title = this.currentPageInfo.title;
+    
+    this.messageInput.value = `Summarize this page: ${title} (${url})`;
+    this.autoResize();
+    this.sendMessage();
+  }
+
+  async captureScreenshot() {
+    try {
+      this.addSystemMessage('📸 Taking screenshot...');
+      
+      // Request screenshot from background script
+      chrome.runtime.sendMessage({ type: 'TAKE_SCREENSHOT' }, (response) => {
+        if (chrome.runtime.lastError) {
+          this.addSystemMessage('❌ Screenshot failed: ' + chrome.runtime.lastError.message);
+          return;
+        }
+        
+        if (response && response.screenshot) {
+          this.handleScreenshotResult(response);
+        } else {
+          this.addSystemMessage('❌ Screenshot failed: No data received');
+        }
+      });
+    } catch (error) {
+      this.addSystemMessage('❌ Screenshot error: ' + error.message);
+    }
+  }
+
+  handleScreenshotResult(data) {
+    if (data && data.screenshot) {
+      // Add screenshot to chat as user message with image
+      const message = {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Analyze this screenshot and describe what you see:' },
+          { type: 'image_url', image_url: { url: data.screenshot } }
+        ]
+      };
+      
+      this.messages.push(message);
+      this.addScreenshotToUI(data.screenshot);
+      this.saveChatHistory();
+      
+      // Send to API with vision capability
+      this.sendVisionMessage(data.screenshot);
+    }
+  }
+
+  addScreenshotToUI(screenshotUrl) {
+    // Remove welcome message if exists
+    const welcome = this.chatContainer.querySelector('.welcome-message');
+    if (welcome) welcome.remove();
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message user';
+    
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = '👤';
+    
+    const messageContent = document.createElement('div');
+    messageContent.className = 'message-content screenshot-message';
+    messageContent.innerHTML = `
+      <div class="screenshot-label">📸 Screenshot captured</div>
+      <img src="${screenshotUrl}" class="screenshot-preview" alt="Page screenshot">
+    `;
+    
+    messageDiv.appendChild(avatar);
+    const messageBody = document.createElement('div');
+    messageBody.className = 'message-body';
+    messageBody.appendChild(messageContent);
+    messageDiv.appendChild(messageBody);
+    
+    this.chatContainer.appendChild(messageDiv);
+    this.scrollToBottom();
+  }
+
+  async sendVisionMessage(screenshotUrl) {
+    this.isLoading = true;
+    this.showTypingIndicator();
+
+    try {
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (this.apiKey) {
+        headers['Authorization'] = `Bearer ${this.apiKey}`;
+      }
+      
+      // Build messages with image
+      const messages = [
+        {
+          role: 'system',
+          content: 'You are Hermes, a personal AI browsing assistant. Analyze the screenshot and describe what you see on the page. Be helpful and concise.'
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Analyze this screenshot and describe what you see:' },
+            { type: 'image_url', image_url: { url: screenshotUrl } }
+          ]
+        }
+      ];
+      
+      const response = await fetch(`${this.apiEndpoint}/chat/completions`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          model: 'hermes-agent',
+          messages: messages,
+          stream: false
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const assistantMessage = data.choices?.[0]?.message?.content;
+      
+      if (assistantMessage) {
+        this.messages.push({ role: 'assistant', content: assistantMessage });
+        this.addMessageToUI('assistant', assistantMessage);
+        this.saveChatHistory();
+      } else {
+        throw new Error('No response content');
+      }
+    } catch (error) {
+      this.addSystemMessage('❌ Error: ' + error.message);
+    } finally {
+      this.isLoading = false;
+      this.hideTypingIndicator();
+    }
   }
 
   async checkApiStatus() {
@@ -403,6 +581,7 @@ class HermesChat {
   openSettings() {
     this.apiEndpointInput.value = this.apiEndpoint;
     this.apiKeyInput.value = this.apiKey;
+    this.autoSummarizeInput.checked = this.autoSummarize;
     this.includeContextInput.checked = this.includeContext;
     this.maxHistoryInput.value = this.maxHistory;
     this.settingsModal.classList.add('active');
@@ -415,12 +594,14 @@ class HermesChat {
   async saveSettingsAction() {
     this.apiEndpoint = this.apiEndpointInput.value;
     this.apiKey = this.apiKeyInput.value;
+    this.autoSummarize = this.autoSummarizeInput.checked;
     this.includeContext = this.includeContextInput.checked;
     this.maxHistory = parseInt(this.maxHistoryInput.value);
     
     await chrome.storage.local.set({
       apiEndpoint: this.apiEndpoint,
       apiKey: this.apiKey,
+      autoSummarize: this.autoSummarize,
       includeContext: this.includeContext,
       maxHistory: this.maxHistory
     });

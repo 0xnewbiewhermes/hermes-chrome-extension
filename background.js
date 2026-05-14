@@ -43,6 +43,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
   
+  if (message.type === 'TAKE_SCREENSHOT') {
+    // Capture screenshot of active tab
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.captureVisibleTab(null, { format: 'png', quality: 90 }, (screenshotUrl) => {
+          if (chrome.runtime.lastError) {
+            sendResponse({ error: chrome.runtime.lastError.message });
+          } else {
+            sendResponse({ screenshot: screenshotUrl });
+          }
+        });
+      }
+    });
+    return true; // Keep message channel open for async response
+  }
+  
   if (message.type === 'OPEN_SIDEBAR') {
     if (sender.tab) {
       chrome.sidePanel.open({ windowId: sender.tab.windowId });
@@ -92,6 +108,12 @@ chrome.runtime.onInstalled.addListener(() => {
     title: 'Summarize this page with Hermes',
     contexts: ['page']
   });
+  
+  chrome.contextMenus.create({
+    id: 'screenshot-page',
+    title: 'Screenshot this page with Hermes',
+    contexts: ['page']
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -108,6 +130,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'summarize-page') {
     chrome.storage.local.set({
       pendingPrompt: 'Summarize this page',
+      selectedUrl: tab.url,
+      selectedTitle: tab.title
+    });
+    chrome.sidePanel.open({ windowId: tab.windowId });
+  }
+  
+  if (info.menuItemId === 'screenshot-page') {
+    chrome.storage.local.set({
+      pendingPrompt: 'screenshot',
       selectedUrl: tab.url,
       selectedTitle: tab.title
     });

@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const openSidebarBtn = document.getElementById('openSidebar');
   const summarizePageBtn = document.getElementById('summarizePage');
   const explainSelectionBtn = document.getElementById('explainSelection');
+  const screenshotPageBtn = document.getElementById('screenshotPage');
   const findRelatedBtn = document.getElementById('findRelated');
 
   // Open sidebar
@@ -52,6 +53,20 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Please select some text on the page first');
       }
     });
+  });
+
+  // Screenshot page
+  screenshotPageBtn.addEventListener('click', async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    chrome.storage.local.set({
+      pendingPrompt: 'screenshot',
+      selectedUrl: tab.url,
+      selectedTitle: tab.title
+    });
+    
+    chrome.sidePanel.open({ windowId: tab.windowId });
+    window.close();
   });
 
   // Find related

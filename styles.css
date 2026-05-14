@@ -624,6 +624,27 @@ textarea::placeholder {
   background: var(--accent-dark);
 }
 
+/* Screenshot Styles */
+.screenshot-message {
+  padding: 8px !important;
+}
+
+.screenshot-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.screenshot-preview {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  display: block;
+}
+
 /* Responsive */
 @media (max-width: 400px) {
   .quick-actions {
